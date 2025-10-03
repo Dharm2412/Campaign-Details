@@ -20,6 +20,9 @@ export default function ContactPage() {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const validateField = (name: string, value: string | File | null): string => {
     switch (name) {
@@ -33,7 +36,7 @@ export default function ContactPage() {
         break;
       case 'influencersFollowers':
         if (!value || (typeof value === 'string' && value.trim() === '')) {
-          return 'Influencer\'s followers is required';
+          return 'Influencer&apos;s followers is required';
         }
         if (typeof value === 'string' && !/^\d+$/.test(value)) {
           return 'Must be a valid number';
@@ -111,7 +114,7 @@ export default function ContactPage() {
     setErrors(prev => ({ ...prev, [name]: error }));
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     const newErrors: Record<string, string> = {};
@@ -131,8 +134,64 @@ export default function ContactPage() {
     setErrors(newErrors);
     
     if (Object.keys(newErrors).length === 0) {
-      console.log('Form submitted successfully:', formData);
-      alert('Campaign details submitted successfully!');
+      setIsSubmitting(true);
+      setSubmitError(null);
+      
+      try {
+        // Prepare form data for webhook
+        const webhookData = {
+          campaignName: formData.campaignName,
+          influencersFollowers: formData.influencersFollowers,
+          campaignType: formData.campaignType,
+          startDate: formData.startDate,
+          brandName: formData.brandName,
+          endDate: formData.endDate,
+          niche: formData.niche,
+          priority: formData.priority,
+          budget: formData.budget,
+          notes: formData.notes,
+          deliverables: formData.deliverables,
+          attachment: formData.attachment ? formData.attachment.name : null,
+          timestamp: new Date().toISOString()
+        };
+
+        // Call the webhook
+        const response = await fetch('https://n8n.srv1042815.hstgr.cloud/webhook/d9e67f53-dbf7-4886-946d-ba1c51553e99', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(webhookData)
+        });
+
+        if (response.ok) {
+          setShowSuccessPopup(true);
+          // Reset form after successful submission
+          setFormData({
+            campaignName: '',
+            influencersFollowers: '',
+            campaignType: '',
+            startDate: '',
+            brandName: '',
+            endDate: '',
+            niche: '',
+            priority: 'Select',
+            budget: '',
+            notes: '',
+            deliverables: '',
+            attachment: null
+          });
+          setTouched({});
+          setErrors({});
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+      } catch (error) {
+        console.error('Error submitting form:', error);
+        setSubmitError('Failed to submit campaign details. Please try again.');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -275,7 +334,7 @@ export default function ContactPage() {
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">Influencer's Followers <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-900 mb-2">Influencer&apos;s Followers <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   name="influencersFollowers"
@@ -482,17 +541,50 @@ export default function ContactPage() {
               </div>
             </div>
 
+            {/* Error message */}
+            {submitError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {submitError}
+              </div>
+            )}
+
             {/* Submit button */}
             <button
               type="submit"
-              className="w-full bg-purple-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-purple-700 transition-colors"
+              disabled={isSubmitting}
+              className={`w-full font-semibold py-3 px-6 rounded-lg transition-colors ${
+                isSubmitting 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-purple-600 hover:bg-purple-700'
+              } text-white`}
             >
-              SUBMIT CAMPAIGN
+              {isSubmitting ? 'SUBMITTING...' : 'SUBMIT CAMPAIGN'}
             </button>
           </form>
 
         </div>
       </div>
+
+      {/* Success Popup */}
+      {showSuccessPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Success!</h3>
+            <p className="text-gray-600 mb-6">Campaign details have been submitted successfully.</p>
+            <button
+              onClick={() => setShowSuccessPopup(false)}
+              className="bg-purple-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
