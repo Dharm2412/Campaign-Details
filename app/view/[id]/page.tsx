@@ -2,10 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-
-interface CampaignData {
-  [key: string]: string | number;
-}
+import { fetchSheetData, formatCellValue, type CampaignData } from '../../../lib/sheetUtils';
 
 export default function ViewDetailPage() {
   const params = useParams();
@@ -18,104 +15,28 @@ export default function ViewDetailPage() {
   const [headers, setHeaders] = useState<string[]>([]);
 
   useEffect(() => {
-    const fetchSheetData = async () => {
-      try {
-        setLoading(true);
-        
-        // Use the sheet ID from URL parameter to fetch from that specific Google Sheet
-        // Export without specifying gid - will export the first tab
-        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-        
-        const response = await fetch(csvUrl);
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch data from Google Sheets. Please verify that Sheet ID "${sheetId}" is valid and publicly accessible.`);
-        }
-        
-        const csvText = await response.text();
-        const rows = csvText.split('\n').filter(row => row.trim());
-        
-        if (rows.length === 0) {
-          throw new Error('No data found in the sheet');
-        }
-        
-        // Parse CSV properly handling quotes and commas
-        const parseCSVRow = (row: string): string[] => {
-          const values: string[] = [];
-          let current = '';
-          let inQuotes = false;
-          
-          for (let i = 0; i < row.length; i++) {
-            const char = row[i];
-            const nextChar = row[i + 1];
-            
-            if (char === '"' && nextChar === '"') {
-              current += '"';
-              i++;
-            } else if (char === '"') {
-              inQuotes = !inQuotes;
-            } else if (char === ',' && !inQuotes) {
-              values.push(current.trim());
-              current = '';
-            } else {
-              current += char;
-            }
-          }
-          values.push(current.trim());
-          return values;
-        };
-        
-        const headerRow = parseCSVRow(rows[0]).map(h => h.replace(/"/g, ''));
-        
-        // Find columns to exclude
-        const emailTemplateIndex = headerRow.findIndex(h =>
-          h.toLowerCase().includes('email template') ||
-          h.toLowerCase().includes('emailtemplate')
-        );
-        
-        const idColumnIndex = headerRow.findIndex(h =>
-          h.toLowerCase() === 'id' ||
-          h.toLowerCase() === 'campaign id' ||
-          h.toLowerCase() === 'record id'
-        );
-        
-        // Filter out excluded columns from headers
-        const filteredHeaders = headerRow.filter((_, idx) =>
-          idx !== emailTemplateIndex && idx !== idColumnIndex
-        );
-        setHeaders(filteredHeaders);
-        
-        const parsedData: CampaignData[] = [];
-        
-        for (let i = 1; i < rows.length; i++) {
-          const values = parseCSVRow(rows[i]).map(v => v.replace(/"/g, ''));
-          
-          // Filter out excluded columns from values
-          const filteredValues = values.filter((_, idx) =>
-            idx !== emailTemplateIndex && idx !== idColumnIndex
-          );
-          
-          if (filteredValues.every(v => !v || v.trim() === '')) continue;
-          
-          const rowData: CampaignData = {};
-          filteredHeaders.forEach((header, idx) => {
-            rowData[header] = filteredValues[idx] || '';
-          });
-          
-          parsedData.push(rowData);
-        }
-        
-        setData(parsedData);
+    const loadData = async () => {
+      if (!sheetId) return;
+      
+      setLoading(true);
+      const result = await fetchSheetData({
+        sheetId,
+        name: `Sheet ${sheetId}`
+      });
+      
+      if (result.error) {
+        setError(result.error);
+        setData([]);
+        setHeaders([]);
+      } else {
+        setData(result.data);
+        setHeaders(result.headers);
         setError(null);
-      } catch (err) {
-        console.error('Error fetching sheet data:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     };
 
-    fetchSheetData();
+    loadData();
   }, [sheetId]);
 
   if (loading) {

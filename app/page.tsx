@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function ContactPage() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
     campaignName: '',
     influencersFollowers: '',
@@ -695,10 +697,13 @@ export default function ContactPage() {
             <h3 className="text-xl font-semibold text-gray-900 mb-2">Data Fetched Successfully!</h3>
             <p className="text-gray-600 mb-6">Campaign details have been saved to the database successfully.</p>
             <button
-              onClick={() => setShowSuccessPopup(false)}
+              onClick={() => {
+                setShowSuccessPopup(false);
+                router.push('/dashboard');
+              }}
               className="bg-purple-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-purple-700 transition-colors"
             >
-              Close
+              OK
             </button>
           </div>
         </div>

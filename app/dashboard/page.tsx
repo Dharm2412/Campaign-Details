@@ -2,10 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-
-interface CampaignData {
-  [key: string]: string | number;
-}
+import { fetchSheetData, formatCellValue, SHEET_CONFIGS, type CampaignData } from '../../lib/sheetUtils';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -27,161 +24,25 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    const fetchSheetData = async () => {
-      try {
-        setLoading(true);
-        
-        const sheetId = '1sJGO3IZ8Cev8F5pkdDo8uxXL7oCVlmsRtrGERsZHxSM';
-        const gid = '0';
-        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-        
-        const response = await fetch(csvUrl);
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch data from Google Sheets');
-        }
-        
-        const csvText = await response.text();
-        const rows = csvText.split('\n').filter(row => row.trim());
-        
-        if (rows.length === 0) {
-          throw new Error('No data found in the sheet');
-        }
-        
-        // Parse CSV properly handling quotes and commas
-        const parseCSVRow = (row: string): string[] => {
-          const values: string[] = [];
-          let current = '';
-          let inQuotes = false;
-          
-          for (let i = 0; i < row.length; i++) {
-            const char = row[i];
-            const nextChar = row[i + 1];
-            
-            if (char === '"' && nextChar === '"') {
-              // Handle escaped quotes
-              current += '"';
-              i++; // Skip next quote
-            } else if (char === '"') {
-              inQuotes = !inQuotes;
-            } else if (char === ',' && !inQuotes) {
-              values.push(current.trim());
-              current = '';
-            } else {
-              current += char;
-            }
-          }
-          values.push(current.trim());
-          return values;
-        };
-        
-        const headerRow = parseCSVRow(rows[0]).map(h => h.replace(/"/g, ''));
-        
-        // Find columns to exclude
-        const emailTemplateIndex = headerRow.findIndex(h =>
-          h.toLowerCase().includes('email template') ||
-          h.toLowerCase().includes('emailtemplate')
-        );
-        
-        const idColumnIndex = headerRow.findIndex(h =>
-          h.toLowerCase() === 'id' ||
-          h.toLowerCase() === 'campaign id' ||
-          h.toLowerCase() === 'record id'
-        );
-        
-        const sheetIdIndex = headerRow.findIndex(h =>
-          h.toLowerCase().includes('sheet id') ||
-          h.toLowerCase().includes('sheetid')
-        );
-        
-        // Filter out excluded columns from headers
-        const filteredHeaders = headerRow.filter((_, idx) =>
-          idx !== emailTemplateIndex && idx !== idColumnIndex && idx !== sheetIdIndex
-        );
-        setHeaders(filteredHeaders);
-        
-        // Parse and clean data rows
-        const parsedData: CampaignData[] = [];
-        const seen = new Set<string>();
-        
-        for (let i = 1; i < rows.length; i++) {
-          const values = parseCSVRow(rows[i]).map(v => v.replace(/"/g, ''));
-          
-          // Store sheet ID before filtering (needed for View button)
-          const sheetIdValue = sheetIdIndex !== -1 ? values[sheetIdIndex] : '';
-          
-          // Filter out excluded columns from values
-          const filteredValues = values.filter((_, idx) =>
-            idx !== emailTemplateIndex && idx !== idColumnIndex && idx !== sheetIdIndex
-          );
-          
-          // Skip empty rows
-          if (filteredValues.every(v => !v || v.trim() === '')) continue;
-          
-          const rowData: CampaignData = {};
-          let rowKey = '';
-          
-          // Map filtered values to filtered headers
-          filteredHeaders.forEach((header, idx) => {
-            const value = filteredValues[idx] || '';
-            rowData[header] = value;
-            rowKey += value; // Create unique key for duplicate detection
-          });
-          
-          // Store sheet ID separately for navigation (not displayed in table)
-          if (sheetIdValue) {
-            rowData['_sheetId'] = sheetIdValue;
-          }
-          
-          // Skip duplicates
-          if (!seen.has(rowKey)) {
-            seen.add(rowKey);
-            parsedData.push(rowData);
-          }
-        }
-        
-        setData(parsedData);
+    const loadData = async () => {
+      setLoading(true);
+      const result = await fetchSheetData(SHEET_CONFIGS.dashboard);
+      
+      if (result.error) {
+        setError(result.error);
+        setData([]);
+        setHeaders([]);
+      } else {
+        setData(result.data);
+        setHeaders(result.headers);
         setError(null);
-      } catch (err) {
-        console.error('Error fetching sheet data:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     };
 
-    fetchSheetData();
+    loadData();
   }, []);
 
-  const formatCellValue = (value: string | number, header: string): string => {
-    const strValue = String(value).trim();
-    
-    // Return "-" for blank fields
-    if (!strValue || strValue === '') {
-      return '-';
-    }
-    
-    // Format dates
-    if (header.toLowerCase().includes('date') && strValue.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
-      return strValue;
-    }
-    
-    // Format currency/budget
-    if (header.toLowerCase().includes('budget') && strValue.match(/^\d+$/)) {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0
-      }).format(Number(strValue));
-    }
-    
-    // Capitalize first letter for status/priority fields
-    if ((header.toLowerCase().includes('status') || header.toLowerCase().includes('priority')) && strValue) {
-      return strValue.charAt(0).toUpperCase() + strValue.slice(1).toLowerCase();
-    }
-    
-    return strValue;
-  };
 
   const getCellClassName = (header: string, value: string | number): string => {
     const strValue = String(value).toLowerCase();

@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-
-interface CampaignData {
-  [key: string]: string | number;
-}
+import { fetchSheetData, formatCellValue, SHEET_CONFIGS, type CampaignData } from '../../lib/sheetUtils';
 
 export default function ViewDetailsPage() {
   const [data, setData] = useState<CampaignData[]>([]);
@@ -13,59 +10,23 @@ export default function ViewDetailsPage() {
   const [headers, setHeaders] = useState<string[]>([]);
 
   useEffect(() => {
-    const fetchSheetData = async () => {
-      try {
-        setLoading(true);
-        
-        // Google Sheets ID from the URL
-        const sheetId = '1Vd0HJJqjdEkCNs2F37B3OmQp7sFelpLibDUIBKmh_lw';
-        const gid = '566681534';
-        
-        // Export as CSV
-        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-        
-        const response = await fetch(csvUrl);
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch data from Google Sheets');
-        }
-        
-        const csvText = await response.text();
-        
-        // Parse CSV
-        const rows = csvText.split('\n').filter(row => row.trim());
-        
-        if (rows.length === 0) {
-          throw new Error('No data found in the sheet');
-        }
-        
-        // Extract headers
-        const headerRow = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        setHeaders(headerRow);
-        
-        // Parse data rows
-        const parsedData = rows.slice(1).map(row => {
-          const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
-          const rowData: CampaignData = {};
-          
-          headerRow.forEach((header, index) => {
-            rowData[header] = values[index] || '';
-          });
-          
-          return rowData;
-        });
-        
-        setData(parsedData);
+    const loadData = async () => {
+      setLoading(true);
+      const result = await fetchSheetData(SHEET_CONFIGS.view);
+      
+      if (result.error) {
+        setError(result.error);
+        setData([]);
+        setHeaders([]);
+      } else {
+        setData(result.data);
+        setHeaders(result.headers);
         setError(null);
-      } catch (err) {
-        console.error('Error fetching sheet data:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     };
 
-    fetchSheetData();
+    loadData();
   }, []);
 
   if (loading) {
