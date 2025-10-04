@@ -15,7 +15,12 @@ export default function ContactPage() {
     budget: '',
     notes: '',
     deliverables: '',
-    attachment: null as File | null
+    attachment: null as File | null,
+    platforms: {
+      instagram: false,
+      facebook: false,
+      youtube: false
+    }
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -23,8 +28,9 @@ export default function ContactPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isRequestInProgress, setIsRequestInProgress] = useState(false);
 
-  const validateField = (name: string, value: string | File | null): string => {
+  const validateField = (name: string, value: string | File | { instagram: boolean; facebook: boolean; youtube: boolean } | null): string => {
     switch (name) {
       case 'campaignName':
         if (!value || (typeof value === 'string' && value.trim() === '')) {
@@ -38,8 +44,8 @@ export default function ContactPage() {
         if (!value || (typeof value === 'string' && value.trim() === '')) {
           return 'Influencer&apos;s followers is required';
         }
-        if (typeof value === 'string' && !/^\d+$/.test(value)) {
-          return 'Must be a valid number';
+        if (typeof value === 'string' && !/^\d+[KkMm]?\+?$/.test(value)) {
+          return 'Must be a valid number (e.g., 1000, 10K+, 5M)';
         }
         break;
       case 'campaignType':
@@ -79,8 +85,8 @@ export default function ContactPage() {
         if (!value || (typeof value === 'string' && value.trim() === '')) {
           return 'Budget is required';
         }
-        if (typeof value === 'string' && !/^\d+(\.\d{1,2})?$/.test(value)) {
-          return 'Must be a valid amount';
+        if (typeof value === 'string' && !/^\d+(\.\d{1,2})?[KkMm]?\+?$/.test(value)) {
+          return 'Must be a valid amount (e.g., 5000, 10K+, 2.5M)';
         }
         break;
       case 'deliverables':
@@ -107,12 +113,24 @@ export default function ContactPage() {
     setFormData(prev => ({ ...prev, attachment: file }));
   };
 
+  const handlePlatformChange = (platform: 'instagram' | 'facebook' | 'youtube') => {
+    setFormData(prev => ({
+      ...prev,
+      platforms: {
+        ...prev.platforms,
+        [platform]: !prev.platforms[platform]
+      }
+    }));
+  };
+
   const handleBlur = (name: string) => {
     setTouched(prev => ({ ...prev, [name]: true }));
     const value = formData[name as keyof typeof formData];
     const error = validateField(name, value);
     setErrors(prev => ({ ...prev, [name]: error }));
   };
+
+
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -121,7 +139,7 @@ export default function ContactPage() {
     const newTouched: Record<string, boolean> = {};
     
     Object.keys(formData).forEach(key => {
-      if (key !== 'notes' && key !== 'attachment') {
+      if (key !== 'notes' && key !== 'attachment' && key !== 'platforms') {
         newTouched[key] = true;
         const error = validateField(key, formData[key as keyof typeof formData]);
         if (error) {
@@ -134,37 +152,78 @@ export default function ContactPage() {
     setErrors(newErrors);
     
     if (Object.keys(newErrors).length === 0) {
+      // Prevent duplicate submissions
+      if (isRequestInProgress) {
+        console.log('Request already in progress, ignoring duplicate submission');
+        return;
+      }
+      
       setIsSubmitting(true);
+      setIsRequestInProgress(true);
       setSubmitError(null);
       
       try {
         // Prepare form data for webhook
-        const webhookData = {
-          campaignName: formData.campaignName,
-          influencersFollowers: formData.influencersFollowers,
-          campaignType: formData.campaignType,
-          startDate: formData.startDate,
-          brandName: formData.brandName,
-          endDate: formData.endDate,
-          niche: formData.niche,
-          priority: formData.priority,
-          budget: formData.budget,
-          notes: formData.notes,
-          deliverables: formData.deliverables,
-          attachment: formData.attachment ? formData.attachment.name : null,
-          timestamp: new Date().toISOString()
-        };
+        const selectedPlatforms = Object.entries(formData.platforms)
+          .filter(([_, isSelected]) => isSelected)
+          .map(([platform, _]) => platform.charAt(0).toUpperCase() + platform.slice(1));
+        
+        // Use FormData for file uploads but structure it properly
+        const formDataToSend = new FormData();
+        
+        // Add all text fields
+        formDataToSend.append('campaignName', formData.campaignName);
+        formDataToSend.append('influencersFollowers', formData.influencersFollowers);
+        formDataToSend.append('campaignType', formData.campaignType);
+        formDataToSend.append('startDate', formData.startDate);
+        formDataToSend.append('brandName', formData.brandName);
+        formDataToSend.append('endDate', formData.endDate);
+        formDataToSend.append('niche', formData.niche);
+        formDataToSend.append('priority', formData.priority);
+        formDataToSend.append('budget', formData.budget);
+        formDataToSend.append('notes', formData.notes || '');
+        formDataToSend.append('deliverables', formData.deliverables);
+        formDataToSend.append('platforms', selectedPlatforms.length > 0 ? selectedPlatforms.join(', ') : 'None');
+        formDataToSend.append('timestamp', new Date().toISOString());
+        
+        // Add file if present
+        if (formData.attachment) {
+          formDataToSend.append('attachment', formData.attachment);
+        }
 
-        // Call the webhook
+        // Debug: Log all FormData entries
+        console.log('=== FORM SUBMISSION DEBUG ===');
+        console.log('FormData entries being sent:');
+        for (const [key, value] of formDataToSend.entries()) {
+          console.log(`- ${key}:`, value);
+        }
+        console.log('Selected platforms:', selectedPlatforms);
+        console.log('File attachment:', formData.attachment ? {
+          name: formData.attachment.name,
+          size: formData.attachment.size,
+          type: formData.attachment.type
+        } : 'No file');
+        console.log('=== END DEBUG ===');
+
+        // Send data to webhook using FormData (single request)
+        console.log('=== SENDING SINGLE WEBHOOK REQUEST ===');
         const response = await fetch('https://n8n.srv1042815.hstgr.cloud/webhook/d9e67f53-dbf7-4886-946d-ba1c51553e99', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(webhookData)
+          body: formDataToSend,
+          mode: 'cors'
         });
+        console.log('=== WEBHOOK REQUEST COMPLETED ===');
+
+        console.log('Webhook response status:', response.status);
+        console.log('Webhook response headers:', Object.fromEntries(response.headers.entries()));
+        
+        // Log response body for debugging
+        const responseText = await response.text();
+        console.log('Webhook response body:', responseText);
 
         if (response.ok) {
+          const responseData = await response.json().catch(() => ({}));
+          console.log('Webhook response data:', responseData);
           setShowSuccessPopup(true);
           // Reset form after successful submission
           setFormData({
@@ -179,18 +238,60 @@ export default function ContactPage() {
             budget: '',
             notes: '',
             deliverables: '',
-            attachment: null
+            attachment: null,
+            platforms: {
+              instagram: false,
+              facebook: false,
+              youtube: false
+            }
           });
           setTouched({});
           setErrors({});
         } else {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          console.error('Webhook failed with status:', response.status);
+          console.error('Response headers:', Object.fromEntries(response.headers.entries()));
+          
+          let errorText = '';
+          let errorMessage = `HTTP error! status: ${response.status}`;
+          
+          try {
+            errorText = await response.text();
+            console.error('Raw error response:', errorText);
+            
+            if (errorText && errorText.trim() !== '') {
+              try {
+                const errorJson = JSON.parse(errorText);
+                if (errorJson.message) {
+                  errorMessage += ` - ${errorJson.message}`;
+                } else if (errorJson.error) {
+                  errorMessage += ` - ${errorJson.error}`;
+                } else {
+                  errorMessage += ` - ${errorText}`;
+                }
+              } catch {
+                errorMessage += ` - ${errorText}`;
+              }
+            } else {
+              errorMessage += ' - No response body received';
+            }
+          } catch (textError) {
+            console.error('Error reading response text:', textError);
+            errorMessage += ' - Could not read response body';
+          }
+          
+          throw new Error(errorMessage);
         }
       } catch (error) {
         console.error('Error submitting form:', error);
-        setSubmitError('Failed to submit campaign details. Please try again.');
+        // Provide more detailed error information
+        if (error instanceof Error) {
+          setSubmitError(`Failed to submit: ${error.message}`);
+        } else {
+          setSubmitError('Failed to submit campaign details. Please check your connection and try again.');
+        }
       } finally {
         setIsSubmitting(false);
+        setIsRequestInProgress(false);
       }
     }
   };
@@ -520,6 +621,8 @@ export default function ContactPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
+                    checked={formData.platforms.instagram}
+                    onChange={() => handlePlatformChange('instagram')}
                     className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-600"
                   />
                   <span className="text-sm text-gray-900">Instagram</span>
@@ -527,6 +630,8 @@ export default function ContactPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
+                    checked={formData.platforms.facebook}
+                    onChange={() => handlePlatformChange('facebook')}
                     className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-600"
                   />
                   <span className="text-sm text-gray-900">Facebook</span>
@@ -534,6 +639,8 @@ export default function ContactPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
+                    checked={formData.platforms.youtube}
+                    onChange={() => handlePlatformChange('youtube')}
                     className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-600"
                   />
                   <span className="text-sm text-gray-900">Youtube</span>
@@ -565,6 +672,17 @@ export default function ContactPage() {
         </div>
       </div>
 
+      {/* Loading Overlay */}
+      {isSubmitting && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
+            <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Processing...</h3>
+            <p className="text-gray-600">Fetching data and saving to database</p>
+          </div>
+        </div>
+      )}
+
       {/* Success Popup */}
       {showSuccessPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -574,8 +692,8 @@ export default function ContactPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Success!</h3>
-            <p className="text-gray-600 mb-6">Campaign details have been submitted successfully.</p>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Data Fetched Successfully!</h3>
+            <p className="text-gray-600 mb-6">Campaign details have been saved to the database successfully.</p>
             <button
               onClick={() => setShowSuccessPopup(false)}
               className="bg-purple-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-purple-700 transition-colors"
